@@ -13,7 +13,7 @@ st.set_page_config(page_title="Akın Yurt AI", page_icon="🏰", layout="centere
 if "language" not in st.session_state:
     st.session_state.language = "TR"  # الافتراضي تركية
 
-# قاموس النصوص (تمت مراجعته ليكون دقيقاً لغوياً)
+# قاموس النصوص
 TEXTS = {
     "AR": {
         "dir": "rtl", "align": "right",
@@ -21,8 +21,9 @@ TEXTS = {
         "subtitle": "بوابة المعرفة والثقافة التركمانية",
         "user_role": "زائر",
         "input_placeholder": "اسأل أكين يورت عن التاريخ، الثقافة، أو السياسة...",
-        "thinking": "جاري صياغة الرد...",
+        "thinking": "جاري صياغة الرد (قد يستغرق وقتاً)...",
         "server_error": "⚠️ السيرفر غير متصل أو الرابط تغير.",
+        "timeout_error": "⚠️ انتهى وقت الانتظار (3 ساعات). السيرفر بطيء جداً.",
         "welcome_msg": "مرحباً، أنا أكين يورت. أنا هنا لخدمة القضية التركمانية وحفظ تاريخنا. كيف يمكنني مساعدتك؟",
         "lang_instruction": "Answer in Arabic language only."
     },
@@ -32,8 +33,9 @@ TEXTS = {
         "subtitle": "Türkmen Bilgi ve Kültür Portalı",
         "user_role": "Misafir",
         "input_placeholder": "Akın Yurt'a sor (Tarih, Kültür, Siyaset)...",
-        "thinking": "Akın Yurt düşünüyor...",
+        "thinking": "Akın Yurt düşünüyor (Lütfen bekleyin)...",
         "server_error": "⚠️ Sunucuya bağlanılamadı.",
+        "timeout_error": "⚠️ Zaman aşımı (3 saat). Sunucu yanıt vermedi.",
         "welcome_msg": "Merhaba, ben Akın Yurt. Türkmen davasına hizmet etmek ve tarihimizi korumak için buradayım. Size nasıl yardımcı olabilirim?",
         "lang_instruction": "Answer in Turkish language only. Use proper grammar (İstanbul Türkçesi) and correct characters (ç, ğ, ı, ö, ş, ü)."
     },
@@ -43,8 +45,9 @@ TEXTS = {
         "subtitle": "Turkmen Knowledge Portal",
         "user_role": "Guest",
         "input_placeholder": "Ask Akın Yurt about history, culture, or politics...",
-        "thinking": "Thinking...",
+        "thinking": "Thinking (This might take a while)...",
         "server_error": "⚠️ Server connection failed.",
+        "timeout_error": "⚠️ Timeout reached (3 hours). Server is unresponsive.",
         "welcome_msg": "Hello, I am Akın Yurt. I am here to serve the Turkmen cause and preserve our history. How can I help you?",
         "lang_instruction": "Answer in English language only."
     }
@@ -53,10 +56,9 @@ TEXTS = {
 # جلب النصوص حسب اللغة المختارة
 T = TEXTS[st.session_state.language]
 
-# CSS: تحسين الخطوط ودعم الاتجاهات (RTL/LTR)
+# CSS: تحسين الخطوط ودعم الاتجاهات
 st.markdown(f"""
 <style>
-    /* استيراد خطوط تدعم التركية والعربية بشكل جميل */
     @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&family=Roboto:wght@400;700&display=swap');
     
     html, body, [class*="css"] {{
@@ -68,13 +70,11 @@ st.markdown(f"""
         text-align: {T['align']}; 
     }}
     
-    /* ضبط اتجاه صندوق الإدخال */
     .stChatInputContainer textarea {{ 
         direction: {T['dir']}; 
         text-align: {T['align']}; 
     }}
     
-    /* إخفاء الهوامش الزائدة */
     .block-container {{
         padding-top: 2rem;
     }}
@@ -85,7 +85,6 @@ st.markdown(f"""
 # 2. إعداد الاتصالات (Supabase & Private Server)
 # =========================================================
 
-# الاتصال بقاعدة البيانات (اختياري - لن يوقف التطبيق إذا فشل)
 def init_supabase():
     try:
         return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
@@ -105,11 +104,10 @@ class PrivateServerEngine:
     def generate_response(self, query, lang_code):
         if not self.api_url: return "Configuration Error: Secrets missing."
         
-        # تعليمات النظام بناءً على اللغة (لضمان الدقة)
         system_prompt = f"""
         You are "Akın Yurt". 
         CRITICAL: {TEXTS[lang_code]['lang_instruction']}
-        Do not hallucinate. If you don't know, say you don't know.
+        Do not hallucinate. Provide strict historical facts based on your knowledge base.
         """
 
         payload = {
@@ -120,19 +118,21 @@ class PrivateServerEngine:
             ],
             "stream": False,
             "options": {
-                "temperature": 0.2, # حرارة منخفضة لتقليل الأخطاء اللغوية
+                "temperature": 0.0, # صفر للإبداع لضمان الدقة التاريخية
                 "num_ctx": 4096
             }
         }
         
         try:
-            # الاتصال بالسيرفر
-            response = requests.post(f"{self.api_url}/api/chat", json=payload, timeout=90)
+            # =========================================================
+            # 🕒 التعديل هنا: Timeout = 3 ساعات (10800 ثانية)
+            # =========================================================
+            response = requests.post(f"{self.api_url}/api/chat", json=payload, timeout=10800)
             
             if response.status_code == 200:
                 ans = response.json()['message']['content']
                 
-                # حفظ في Supabase (محاولة فقط)
+                # حفظ في Supabase
                 if db:
                     try: 
                         db.table("chat_history").insert({
@@ -146,6 +146,9 @@ class PrivateServerEngine:
                 return ans
             else:
                 return f"Server Error: {response.status_code}"
+                
+        except requests.exceptions.Timeout:
+            return TEXTS[lang_code]['timeout_error']
         except Exception as e:
             return f"{TEXTS[lang_code]['server_error']} ({str(e)})"
 
@@ -154,11 +157,9 @@ class PrivateServerEngine:
 # =========================================================
 
 def main():
-    # الشريط الجانبي (Sidebar)
     with st.sidebar:
         st.header(f"👤 {T['user_role']}")
         
-        # قائمة اختيار اللغة
         lang_options = ["TR", "AR", "EN"]
         selected_lang = st.selectbox(
             "Dil / اللغة / Language", 
@@ -166,7 +167,6 @@ def main():
             index=lang_options.index(st.session_state.language)
         )
         
-        # إعادة التحميل عند تغيير اللغة لتطبيق الاتجاهات
         if selected_lang != st.session_state.language:
             st.session_state.language = selected_lang
             st.rerun()
@@ -174,41 +174,32 @@ def main():
         st.divider()
         st.caption("Powered by Akın Yurt Server (AWS)")
         
-        # زر لمسح المحادثة
         if st.button("🗑️ Temizle / مسح"):
             st.session_state.messages = []
             st.rerun()
 
-    # العنوان
     st.title(f"🏰 {T['title']}")
     st.markdown(f"*{T['subtitle']}*")
 
-    # تهيئة سجل المحادثة
     if "messages" not in st.session_state:
         st.session_state.messages = []
-        # رسالة ترحيبية تلقائية
         st.session_state.messages.append({"role": "assistant", "content": T['welcome_msg']})
 
-    # عرض الرسائل القديمة
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # صندوق الإدخال (Input)
     if prompt := st.chat_input(T["input_placeholder"]):
-        # 1. عرض رسالة المستخدم
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # 2. الحصول على الرد
         engine = PrivateServerEngine()
         with st.chat_message("assistant"):
             with st.spinner(T["thinking"]):
                 response_text = engine.generate_response(prompt, st.session_state.language)
                 st.markdown(response_text)
                 
-                # حفظ الرد في الجلسة
                 st.session_state.messages.append({"role": "assistant", "content": response_text})
 
 if __name__ == "__main__":
