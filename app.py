@@ -5,98 +5,78 @@ import re
 from supabase import create_client, Client
 
 # =========================================================
-# 1. إعدادات الصفحة واللغة (Page Configuration)
+# 1. إعدادات الصفحة واللغات
 # =========================================================
 
 st.set_page_config(page_title="Akın Yurt AI (DeepSeek)", page_icon="🧠", layout="centered")
 
-# تهيئة اللغة الافتراضية
 if "language" not in st.session_state:
     st.session_state.language = "TR"
 
-# نصوص الواجهة (مترجمة بدقة)
 TEXTS = {
     "AR": {
         "dir": "rtl", "align": "right",
         "title": "ذكاء تركمان إيلي (الجيل العميق)",
-        "subtitle": "بوابة المعرفة الموثقة - DeepSeek R1",
+        "subtitle": "بوابة المعرفة الموثقة - AWS Cloud",
         "user_role": "زائر",
         "input_placeholder": "اسأل أكين يورت عن التاريخ...",
-        "thinking": "جاري التحليل العميق واسترجاع التاريخ...",
+        "thinking": "جاري الاتصال بالسيرفر والتحليل العميق...",
         "thought_label": "📝 مسار التفكير (اضغط للعرض)",
-        "server_error": "⚠️ السيرفر غير متصل.",
-        "timeout_error": "⚠️ السيرفر يستغرق وقتاً طويلاً جداً.",
-        "welcome_msg": "مرحباً. أنا أستخدم نموذج التفكير العميق (DeepSeek) لتحليل التاريخ التركماني بدقة. كيف يمكنني مساعدتك؟"
+        "server_error": "⚠️ فشل الاتصال بالسيرفر. تأكد من تشغيل Ollama وفتح البورت 11434.",
+        "timeout_error": "⚠️ السيرفر يستغرق وقتاً طويلاً جداً (انتهى الوقت).",
+        "welcome_msg": "مرحباً. أنا أعمل عبر اتصال مباشر بسيرفر AWS باستخدام DeepSeek-R1. كيف يمكنني مساعدتك؟"
     },
     "TR": {
         "dir": "ltr", "align": "left",
         "title": "Akın Yurt YZ (DeepSeek)",
-        "subtitle": "Derin Analiz ve Tarih Portalı",
+        "subtitle": "Derin Analiz ve Tarih Portalı - AWS",
         "user_role": "Misafir",
         "input_placeholder": "Akın Yurt'a sor (Tarih, Analiz)...",
-        "thinking": "Akın Yurt derin düşünüyor...",
+        "thinking": "Sunucuyla bağlantı kuruluyor ve düşünülüyor...",
         "thought_label": "📝 Düşünce Süreci (Görmek için tıkla)",
-        "server_error": "⚠️ Sunucu hatası.",
+        "server_error": "⚠️ Sunucu hatası. 11434 portunun açık olduğundan emin olun.",
         "timeout_error": "⚠️ Zaman aşımı. Sunucu yanıt vermedi.",
-        "welcome_msg": "Merhaba. Türkmen tarihini en ince ayrıntısına kadar analiz etmek için DeepSeek-R1 modelini kullanıyorum.",
+        "welcome_msg": "Merhaba. AWS sunucusu üzerinden DeepSeek-R1 modelini kullanarak hizmet veriyorum.",
     },
     "EN": {
         "dir": "ltr", "align": "left",
         "title": "Turkmeneli AI (DeepSeek)",
-        "subtitle": "Deep Reasoning Historical Portal",
+        "subtitle": "Deep Reasoning Portal - AWS Direct",
         "user_role": "Guest",
         "input_placeholder": "Ask Akın Yurt...",
-        "thinking": "Deep reasoning in progress...",
+        "thinking": "Connecting to AWS and reasoning...",
         "thought_label": "📝 Chain of Thought (Click to view)",
-        "server_error": "⚠️ Server connection failed.",
+        "server_error": "⚠️ Server connection failed. Check Port 11434.",
         "timeout_error": "⚠️ Server timeout.",
-        "welcome_msg": "Hello. I am running on DeepSeek-R1 to strictly analyze Turkmen history facts."
+        "welcome_msg": "Hello. Running on AWS Direct Connection with DeepSeek-R1."
     }
 }
 
 T = TEXTS[st.session_state.language]
 
-# تنسيق CSS (خطوط + اتجاهات)
 st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&family=Roboto:wght@400;700&display=swap');
-    
-    html, body, [class*="css"] {{
-        font-family: 'Roboto', 'Tajawal', sans-serif;
-    }}
-    
-    .stApp, .stTextInput, .stButton, .stMarkdown {{ 
-        direction: {T['dir']}; 
-        text-align: {T['align']}; 
-    }}
-    
-    .stChatInputContainer textarea {{ 
-        direction: {T['dir']}; 
-        text-align: {T['align']}; 
-    }}
-    
-    /* تنسيق صندوق التفكير */
-    .streamlit-expanderHeader {{
-        font-size: 0.9em;
-        color: #555;
-    }}
+    html, body, [class*="css"] {{ font-family: 'Roboto', 'Tajawal', sans-serif; }}
+    .stApp, .stTextInput, .stButton, .stMarkdown {{ direction: {T['dir']}; text-align: {T['align']}; }}
+    .stChatInputContainer textarea {{ direction: {T['dir']}; text-align: {T['align']}; }}
+    .streamlit-expanderHeader {{ font-size: 0.9em; color: #555; }}
 </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# 2. المحرك والاتصال (Engine Logic)
+# 2. المحرك والاتصال
 # =========================================================
 
 def init_supabase():
-    try:
-        return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+    try: return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
     except: return None
-
 db = init_supabase()
 
 class PrivateServerEngine:
     def __init__(self):
         try:
+            # هنا يتم قراءة الرابط من ملف secrets.toml
             self.api_url = st.secrets["akinyurt_server"]["url"]
             self.model_name = st.secrets["akinyurt_server"]["model_name"]
         except:
@@ -104,55 +84,36 @@ class PrivateServerEngine:
             self.model_name = "akinyurt"
 
     def parse_deepseek_output(self, raw_text):
-        """
-        وظيفة ذكية لفصل التفكير <think> عن الإجابة النهائية
-        """
-        # البحث عن محتوى ما بين التاغات
         thought_match = re.search(r'<think>(.*?)</think>', raw_text, re.DOTALL)
-        
         if thought_match:
             thought = thought_match.group(1).strip()
-            # حذف التاغات وما بينهما للحصول على الإجابة النظيفة
             answer = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
             return thought, answer
         else:
-            # في حال لم يخرج الموديل أي تفكير (نادر الحدوث)
             return None, raw_text
 
     def generate_response(self, query, lang_code):
         if not self.api_url: return None, "Configuration Error: Secrets missing."
         
-        # DeepSeek R1 لا يحتاج System Prompt هنا، لأنه مدمج في الموديل
         payload = {
             "model": self.model_name,
-            "messages": [
-                {"role": "user", "content": query}
-            ],
+            "messages": [{"role": "user", "content": query}],
             "stream": False,
-            "options": {
-                "temperature": 0.6, # حرارة مناسبة للتفكير
-                "num_ctx": 8192     # سياق طويل للتفكير العميق
-            }
+            "options": {"temperature": 0.6, "num_ctx": 8192}
         }
         
         try:
-            # 🕒 وقت انتظار 3 ساعات (10800 ثانية)
+            # 3 ساعات انتظار
             response = requests.post(f"{self.api_url}/api/chat", json=payload, timeout=10800)
             
             if response.status_code == 200:
                 raw_content = response.json()['message']['content']
-                
-                # المعالجة والفصل
                 thought, clean_answer = self.parse_deepseek_output(raw_content)
                 
-                # حفظ الإجابة النهائية فقط في قاعدة البيانات
                 if db:
                     try: 
                         db.table("chat_history").insert({
-                            "username": "guest", 
-                            "question": query, 
-                            "answer": clean_answer,
-                            "lang": lang_code
+                            "username": "guest", "question": query, "answer": clean_answer, "lang": lang_code
                         }).execute()
                     except: pass
                 
@@ -162,19 +123,18 @@ class PrivateServerEngine:
                 
         except requests.exceptions.Timeout:
             return None, TEXTS[lang_code]['timeout_error']
+        except requests.exceptions.ConnectionError:
+            return None, TEXTS[lang_code]['server_error']
         except Exception as e:
-            return None, f"{TEXTS[lang_code]['server_error']} ({str(e)})"
+            return None, f"Error: {str(e)}"
 
 # =========================================================
-# 3. واجهة التطبيق (UI)
+# 3. الواجهة
 # =========================================================
 
 def main():
-    # الشريط الجانبي
     with st.sidebar:
         st.header(f"🧠 {T['user_role']}")
-        
-        # اختيار اللغة
         lang_options = ["TR", "AR", "EN"]
         selected_lang = st.selectbox("Dil / اللغة", lang_options, index=lang_options.index(st.session_state.language))
         
@@ -183,59 +143,40 @@ def main():
             st.rerun()
             
         st.divider()
-        st.info("Model: **DeepSeek-R1 (7B)**\nMode: **Historical Reasoning**")
-        
-        if st.button("🗑️ Reset Chat"):
+        st.info("Connection: **AWS Direct IP**\nModel: **DeepSeek-R1**")
+        if st.button("🗑️ Reset"):
             st.session_state.messages = []
             st.rerun()
 
-    # العنوان الرئيسي
     st.title(f"🏰 {T['title']}")
     st.caption(T['subtitle'])
 
-    # تهيئة الرسائل
     if "messages" not in st.session_state:
-        st.session_state.messages = []
-        st.session_state.messages.append({"role": "assistant", "content": T['welcome_msg']})
+        st.session_state.messages = [{"role": "assistant", "content": T['welcome_msg']}]
 
-    # عرض الرسائل
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            # إذا كانت الرسالة تحتوي على "تفكير"، نعرضه في صندوق مغلق
             if "thought" in msg and msg["thought"]:
                 with st.expander(f"👁️ {T['thought_label']}"):
                     st.markdown(f"_{msg['thought']}_")
-            
-            # عرض المحتوى الأساسي
             st.markdown(msg["content"])
 
-    # إدخال المستخدم
     if prompt := st.chat_input(T["input_placeholder"]):
-        # إضافة وعرض رسالة المستخدم
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # المعالجة
         engine = PrivateServerEngine()
         with st.chat_message("assistant"):
             with st.spinner(T["thinking"]):
                 thought, answer = engine.generate_response(prompt, st.session_state.language)
                 
-                # عرض التفكير (اختياري)
                 if thought:
                     with st.expander(f"👁️ {T['thought_label']}"):
                         st.markdown(f"_{thought}_")
                 
-                # عرض الإجابة
                 st.markdown(answer)
-                
-                # الحفظ في الجلسة
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": answer, 
-                    "thought": thought  # نحفظ التفكير أيضاً لنعرضه إذا صعد المستخدم للأعلى
-                })
+                st.session_state.messages.append({"role": "assistant", "content": answer, "thought": thought})
 
 if __name__ == "__main__":
     main()
